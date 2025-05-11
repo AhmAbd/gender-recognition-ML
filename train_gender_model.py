@@ -20,12 +20,12 @@ path = kagglehub.dataset_download("maciejgronczynski/biggest-genderface-recognit
 print("✅ Dataset path:", path)
 
 # Step 2: Load images
-def load_images_from_folder(folder, label, img_size=(64, 64)):
+def load_images_from_folder(folder, label, img_size=(32, 32)):
     data = []
     for filename in os.listdir(folder):
         img_path = os.path.join(folder, filename)
         try:
-            img = Image.open(img_path).convert("L")  # Convert to grayscale
+            img = Image.open(img_path).convert("L")  # Grayscale
             img = img.resize(img_size)
             img_array = np.array(img).flatten()
             data.append((img_array, label))
@@ -59,29 +59,25 @@ print("Min value:", X_normalized.min(), "| Max value:", X_normalized.max())
 # Step 5: Train/test split
 X_train, X_test, y_train, y_test = train_test_split(X_normalized, y, test_size=0.2, random_state=42)
 
-print("✅ Train shape:", X_train.shape)
-print("✅ Test shape:", X_test.shape)
-
 # Step 6: PCA
-pca = PCA(n_components=100)
+pca = PCA(n_components=50)
 X_train_pca = pca.fit_transform(X_train)
 X_test_pca = pca.transform(X_test)
 print("✅ PCA shape:", X_train_pca.shape)
 
-# Step 7: SelectKBest
+# Step 7: Feature Selection (Optional: Uncomment if needed)
+# SelectKBest
 skb = SelectKBest(score_func=f_classif, k=100)
 X_train_skb = skb.fit_transform(X_train, y_train)
 X_test_skb = skb.transform(X_test)
-print("✅ SelectKBest shape:", X_train_skb.shape)
 
-# Step 8: RFE
+# RFE
 rfe_model = LogisticRegression(max_iter=1000)
 rfe = RFE(estimator=rfe_model, n_features_to_select=100, step=50)
 X_train_rfe = rfe.fit_transform(X_train, y_train)
 X_test_rfe = rfe.transform(X_test)
-print("✅ RFE shape:", X_train_rfe.shape)
 
-# Step 9: Model evaluation
+# Step 8: Model evaluation
 def evaluate_model(model, X_train, X_test, y_train, y_test, name=""):
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
@@ -96,30 +92,19 @@ def evaluate_model(model, X_train, X_test, y_train, y_test, name=""):
     plt.ylabel("Actual")
     plt.show()
 
-# Step 10: Try all models with all feature sets
+# Step 9: Try all models with PCA features
 print("\n--- Using PCA Features ---")
 evaluate_model(LogisticRegression(max_iter=1000), X_train_pca, X_test_pca, y_train, y_test, "Logistic Regression (PCA)")
 evaluate_model(DecisionTreeClassifier(), X_train_pca, X_test_pca, y_train, y_test, "Decision Tree (PCA)")
 evaluate_model(KNeighborsClassifier(n_neighbors=5), X_train_pca, X_test_pca, y_train, y_test, "KNN (PCA)")
-evaluate_model(SVC(), X_train_pca, X_test_pca, y_train, y_test, "SVM (PCA)")
+evaluate_model(SVC(probability=True), X_train_pca, X_test_pca, y_train, y_test, "SVM (PCA)")
 
-print("\n--- Using SelectKBest Features ---")
-evaluate_model(LogisticRegression(max_iter=1000), X_train_skb, X_test_skb, y_train, y_test, "Logistic Regression (SelectKBest)")
-evaluate_model(DecisionTreeClassifier(), X_train_skb, X_test_skb, y_train, y_test, "Decision Tree (SelectKBest)")
-evaluate_model(KNeighborsClassifier(n_neighbors=5), X_train_skb, X_test_skb, y_train, y_test, "KNN (SelectKBest)")
-evaluate_model(SVC(), X_train_skb, X_test_skb, y_train, y_test, "SVM (SelectKBest)")
-
-print("\n--- Using RFE Features ---")
-evaluate_model(LogisticRegression(max_iter=1000), X_train_rfe, X_test_rfe, y_train, y_test, "Logistic Regression (RFE)")
-evaluate_model(DecisionTreeClassifier(), X_train_rfe, X_test_rfe, y_train, y_test, "Decision Tree (RFE)")
-evaluate_model(KNeighborsClassifier(n_neighbors=5), X_train_rfe, X_test_rfe, y_train, y_test, "KNN (RFE)")
-evaluate_model(SVC(), X_train_rfe, X_test_rfe, y_train, y_test, "SVM (RFE)")
-
-# Step 11: Save best model (example: SVM with PCA)
-final_model = SVC()
+# Step 10: Save final model with PCA
+final_model = SVC(probability=True)
 final_model.fit(X_train_pca, y_train)
+
 joblib.dump(final_model, "model.pkl")
 joblib.dump(scaler, "scaler.pkl")
-joblib.dump(pca, "pca.pkl")
+joblib.dump(pca, "features.pkl")  # Keep name consistent with Streamlit app
 
-print("✅ Model, scaler, and feature selector saved!")
+print("\n✅ Final model, scaler, and feature selector saved successfully!")
