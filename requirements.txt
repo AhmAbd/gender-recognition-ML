@@ -1,1 +1,8 @@
 streamlit
+numpy
+Pillow
+scikit-learn
+joblib
+kagglehub
+matplotlib
+seaborn
