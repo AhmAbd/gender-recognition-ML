@@ -18,7 +18,7 @@ uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png
 if uploaded_file is not None:
     try:
         image = Image.open(uploaded_file).convert("L")  # Convert to grayscale
-        image_resized = image.resize((64, 64))           # Resize to match training
+        image_resized = image.resize((32, 32))           # Resize to match training
         img_array = np.array(image_resized).flatten().reshape(1, -1)
 
         st.image(image_resized, caption="Processed Image", width=150)
