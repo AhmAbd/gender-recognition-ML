@@ -64,7 +64,9 @@ scaler = MinMaxScaler()
 X_normalized = scaler.fit_transform(X)
 
 # Step 4: Train/test split
-X_train, X_test, y_train, y_test = train_test_split(X_normalized, y, test_size=0.2, random_state=42)
+X_train, X_test, y_train, y_test = train_test_split(
+    X_normalized, y, test_size=0.2, random_state=42
+)
 
 # Step 5: PCA
 pca = PCA(n_components=1000, random_state=42)
@@ -87,20 +89,28 @@ def evaluate_model(model, X_train, X_test, y_train, y_test, name=""):
     y_pred = model.predict(X_test)
     print(f"Results for {name}")
     print(classification_report(y_test, y_pred, target_names=["Man", "Woman"]))
+
     cm = confusion_matrix(y_test, y_pred)
-    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=["Man", "Woman"], yticklabels=["Man", "Woman"])
+    plt.figure(figsize=(5,4))
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
+                xticklabels=["Man", "Woman"], yticklabels=["Man", "Woman"])
     plt.title(f"{name} - Confusion Matrix")
     plt.xlabel("Predicted")
     plt.ylabel("Actual")
-    plt.show()
+    plt.tight_layout()
+    plt.savefig(f"{name}_confusion_matrix.png")
+    plt.close()   # ✅ MOST IMPORTANT: do not block execution
 
 print("\n--- Using PCA + SVD + SelectKBest Features ---")
 evaluate_model(LogisticRegression(max_iter=2000, solver='liblinear', class_weight='balanced'), 
                X_train_selected, X_test_selected, y_train, y_test, "Logistic Regression (Balanced)")
+
 evaluate_model(DecisionTreeClassifier(random_state=42), 
                X_train_selected, X_test_selected, y_train, y_test, "Decision Tree")
+
 evaluate_model(KNeighborsClassifier(n_neighbors=5), 
                X_train_selected, X_test_selected, y_train, y_test, "KNN")
+
 evaluate_model(SVC(probability=True, class_weight='balanced', random_state=42), 
                X_train_selected, X_test_selected, y_train, y_test, "SVM (Balanced)")
 
