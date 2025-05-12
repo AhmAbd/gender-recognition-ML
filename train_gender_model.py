@@ -6,7 +6,7 @@ import random
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 from sklearn.decomposition import PCA
-from sklearn.feature_selection import SelectKBest, mutual_info_classif
+from sklearn.feature_selection import VarianceThreshold, SelectKBest, mutual_info_classif
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.neighbors import KNeighborsClassifier
@@ -73,15 +73,15 @@ pca = PCA(n_components=1000, random_state=42)
 X_train_pca = pca.fit_transform(X_train)
 X_test_pca = pca.transform(X_test)
 
-# Step 6: SVD
-U, S, Vt = np.linalg.svd(X_train_pca, full_matrices=False)
-X_train_svd = U[:, :500]
-X_test_svd = np.dot(X_test_pca, Vt.T[:, :500])
+# Step 6: VarianceThreshold
+vt = VarianceThreshold(threshold=0.01)
+X_train_vt = vt.fit_transform(X_train_pca)
+X_test_vt = vt.transform(X_test_pca)
 
 # Step 7: SelectKBest
 selector = SelectKBest(mutual_info_classif, k=300)
-X_train_selected = selector.fit_transform(X_train_svd, y_train)
-X_test_selected = selector.transform(X_test_svd)
+X_train_selected = selector.fit_transform(X_train_vt, y_train)
+X_test_selected = selector.transform(X_test_vt)
 
 # Step 8: Evaluate models
 def evaluate_model(model, X_train, X_test, y_train, y_test, name=""):
@@ -99,9 +99,9 @@ def evaluate_model(model, X_train, X_test, y_train, y_test, name=""):
     plt.ylabel("Actual")
     plt.tight_layout()
     plt.savefig(f"{name}_confusion_matrix.png")
-    plt.close()   # ✅ MOST IMPORTANT: do not block execution
+    plt.close()
 
-print("\n--- Using PCA + SVD + SelectKBest Features ---")
+print("\n--- Using PCA + VarianceThreshold + SelectKBest Features ---")
 evaluate_model(LogisticRegression(max_iter=2000, solver='liblinear', class_weight='balanced'), 
                X_train_selected, X_test_selected, y_train, y_test, "Logistic Regression (Balanced)")
 
@@ -114,12 +114,11 @@ evaluate_model(KNeighborsClassifier(n_neighbors=5),
 evaluate_model(SVC(probability=True, class_weight='balanced', random_state=42), 
                X_train_selected, X_test_selected, y_train, y_test, "SVM (Balanced)")
 
-# Step 9: Save final model
-final_model = SVC(probability=True, class_weight='balanced', random_state=42)
-final_model.fit(X_train_selected, y_train)
-joblib.dump(final_model, "model.pkl")
-joblib.dump(scaler, "scaler.pkl")
-joblib.dump(pca, "pca.pkl")
-joblib.dump(selector, "selector.pkl")
+# Step 9: Save final model with compression
+joblib.dump(SVC(probability=True, class_weight='balanced', random_state=42).fit(X_train_selected, y_train), "model.pkl", compress=3)
+joblib.dump(scaler, "scaler.pkl", compress=3)
+joblib.dump(pca, "pca.pkl", compress=3)
+joblib.dump(vt, "variance_threshold.pkl", compress=3)
+joblib.dump(selector, "selector.pkl", compress=3)
 
-print("\nFinal model, scaler, PCA, and feature selector saved successfully!")
+print("\nFinal model, scaler, PCA, VarianceThreshold, and selector saved successfully with compression!")
