@@ -2,10 +2,11 @@ import os
 import numpy as np
 from PIL import Image
 import kagglehub
+import random
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 from sklearn.decomposition import PCA
-from sklearn.feature_selection import SelectKBest, f_classif, RFE
+from sklearn.feature_selection import SelectKBest, mutual_info_classif
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.neighbors import KNeighborsClassifier
@@ -17,15 +18,14 @@ import joblib
 
 # Step 1: Download dataset
 path = kagglehub.dataset_download("maciejgronczynski/biggest-genderface-recognition-dataset")
-print("✅ Dataset path:", path)
+print("Dataset path:", path)
 
-# Step 2: Load images
-def load_images_from_folder(folder, label, img_size=(32, 32)):
+def load_images_from_folder(folder, label, img_size=(128,128)):
     data = []
     for filename in os.listdir(folder):
         img_path = os.path.join(folder, filename)
         try:
-            img = Image.open(img_path).convert("L")  # Grayscale
+            img = Image.open(img_path).convert("L")
             img = img.resize(img_size)
             img_array = np.array(img).flatten()
             data.append((img_array, label))
@@ -33,58 +33,60 @@ def load_images_from_folder(folder, label, img_size=(32, 32)):
             continue
     return data
 
-# Step 3: Prepare data
+# Step 2: Load data
 man_dir = os.path.join(path, "faces", "man")
 woman_dir = os.path.join(path, "faces", "woman")
 man_data = load_images_from_folder(man_dir, label=0)
 woman_data = load_images_from_folder(woman_dir, label=1)
 
+print(f"Before balancing - Men: {len(man_data)}, Women: {len(woman_data)}")
+
+# Balance dataset by oversampling minority class
+if len(man_data) > len(woman_data):
+    diff = len(man_data) - len(woman_data)
+    additional_women = random.choices(woman_data, k=diff)
+    woman_data += additional_women
+elif len(woman_data) > len(man_data):
+    diff = len(woman_data) - len(man_data)
+    additional_men = random.choices(man_data, k=diff)
+    man_data += additional_men
+
 all_data = man_data + woman_data
-np.random.shuffle(all_data)
+random.shuffle(all_data)
 
 X = np.array([i[0] for i in all_data])
 y = np.array([i[1] for i in all_data])
 
-print("✅ Total samples:", len(X))
-print("✅ Image size (flattened):", X.shape[1])
-print("✅ Labels shape:", y.shape)
+print(f"After balancing - Men: {sum(y==0)}, Women: {sum(y==1)}")
 
-# Step 4: Normalize features
+# Step 3: Normalize
 scaler = MinMaxScaler()
 X_normalized = scaler.fit_transform(X)
 
-print("✅ Normalized shape:", X_normalized.shape)
-print("Min value:", X_normalized.min(), "| Max value:", X_normalized.max())
-
-# Step 5: Train/test split
+# Step 4: Train/test split
 X_train, X_test, y_train, y_test = train_test_split(X_normalized, y, test_size=0.2, random_state=42)
 
-# Step 6: PCA
-pca = PCA(n_components=50)
+# Step 5: PCA
+pca = PCA(n_components=1000, random_state=42)
 X_train_pca = pca.fit_transform(X_train)
 X_test_pca = pca.transform(X_test)
-print("✅ PCA shape:", X_train_pca.shape)
 
-# Step 7: Feature Selection (Optional: Uncomment if needed)
-# SelectKBest
-skb = SelectKBest(score_func=f_classif, k=100)
-X_train_skb = skb.fit_transform(X_train, y_train)
-X_test_skb = skb.transform(X_test)
+# Step 6: SVD
+U, S, Vt = np.linalg.svd(X_train_pca, full_matrices=False)
+X_train_svd = U[:, :500]
+X_test_svd = np.dot(X_test_pca, Vt.T[:, :500])
 
-# RFE
-rfe_model = LogisticRegression(max_iter=1000)
-rfe = RFE(estimator=rfe_model, n_features_to_select=100, step=50)
-X_train_rfe = rfe.fit_transform(X_train, y_train)
-X_test_rfe = rfe.transform(X_test)
+# Step 7: SelectKBest
+selector = SelectKBest(mutual_info_classif, k=300)
+X_train_selected = selector.fit_transform(X_train_svd, y_train)
+X_test_selected = selector.transform(X_test_svd)
 
-# Step 8: Model evaluation
+# Step 8: Evaluate models
 def evaluate_model(model, X_train, X_test, y_train, y_test, name=""):
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
-
-    print(f"\n📊 Results for {name}")
+    print(f"Results for {name}")
     print(classification_report(y_test, y_pred, target_names=["Man", "Woman"]))
-
     cm = confusion_matrix(y_test, y_pred)
     sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=["Man", "Woman"], yticklabels=["Man", "Woman"])
     plt.title(f"{name} - Confusion Matrix")
@@ -92,19 +94,22 @@ def evaluate_model(model, X_train, X_test, y_train, y_test, name=""):
     plt.ylabel("Actual")
     plt.show()
 
-# Step 9: Try all models with PCA features
-print("\n--- Using PCA Features ---")
-evaluate_model(LogisticRegression(max_iter=1000), X_train_pca, X_test_pca, y_train, y_test, "Logistic Regression (PCA)")
-evaluate_model(DecisionTreeClassifier(), X_train_pca, X_test_pca, y_train, y_test, "Decision Tree (PCA)")
-evaluate_model(KNeighborsClassifier(n_neighbors=5), X_train_pca, X_test_pca, y_train, y_test, "KNN (PCA)")
-evaluate_model(SVC(probability=True), X_train_pca, X_test_pca, y_train, y_test, "SVM (PCA)")
+print("\n--- Using PCA + SVD + SelectKBest Features ---")
+evaluate_model(LogisticRegression(max_iter=2000, solver='liblinear', class_weight='balanced'), 
+               X_train_selected, X_test_selected, y_train, y_test, "Logistic Regression (Balanced)")
+evaluate_model(DecisionTreeClassifier(random_state=42), 
+               X_train_selected, X_test_selected, y_train, y_test, "Decision Tree")
+evaluate_model(KNeighborsClassifier(n_neighbors=5), 
+               X_train_selected, X_test_selected, y_train, y_test, "KNN")
+evaluate_model(SVC(probability=True, class_weight='balanced', random_state=42), 
+               X_train_selected, X_test_selected, y_train, y_test, "SVM (Balanced)")
 
-# Step 10: Save final model with PCA
-final_model = SVC(probability=True)
-final_model.fit(X_train_pca, y_train)
-
+# Step 9: Save final model
+final_model = SVC(probability=True, class_weight='balanced', random_state=42)
+final_model.fit(X_train_selected, y_train)
 joblib.dump(final_model, "model.pkl")
 joblib.dump(scaler, "scaler.pkl")
-joblib.dump(pca, "features.pkl")  # Keep name consistent with Streamlit app
+joblib.dump(pca, "pca.pkl")
+joblib.dump(selector, "selector.pkl")
 
-print("\n✅ Final model, scaler, and feature selector saved successfully!")
+print("\nFinal model, scaler, PCA, and feature selector saved successfully!")

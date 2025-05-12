@@ -3,39 +3,47 @@ import numpy as np
 from PIL import Image
 import joblib
 
-# Model bileşenlerini yükle
+# Load model components
 model = joblib.load("model.pkl")
 scaler = joblib.load("scaler.pkl")
-pca = joblib.load("features.pkl")  # PCA bu isimle kaydedildi
+pca = joblib.load("pca.pkl")
+selector = joblib.load("selector.pkl")
 
-st.set_page_config(page_title="Yüz Görüntüsünden Cinsiyet Tanıma", layout="centered")
+st.set_page_config(page_title="Gender Prediction from Face Image", layout="centered")
 
-st.title("Yüz Görüntüsünden Cinsiyet Tanıma")
-st.write("Bir yüz resmi yükleyin (gri tonlama veya renkli), model cinsiyeti tahmin edecektir.")
+st.title("Gender Prediction from Face Image")
+st.write("Upload a face image (grayscale or colored), the model will predict gender.")
 
-uploaded_file = st.file_uploader("Bir resim seçin...", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
     try:
-        # Adım 1: Görüntüyü oku ve ön işle
+        # Step 1: Read & preprocess image
         image = Image.open(uploaded_file).convert("L")
-        image_resized = image.resize((32, 32))  # Eğitim boyutuyla uyumlu olmalı
+        image_resized = image.resize((128, 128))  # Match training size
         img_array = np.array(image_resized).flatten().reshape(1, -1)
 
-        st.image(image_resized, caption="İşlenmiş Görüntü", width=150)
-        st.write("Görüntü yüklendi ve ön işlemden geçirildi.")
+        st.image(image_resized, caption="Processed Image", width=150)
+        st.write("Image loaded and preprocessed.")
 
-        # Adım 2: Ölçeklendir + PCA
+        # Step 2: Apply pipeline: Scale → PCA → SVD → SelectKBest
         img_scaled = scaler.transform(img_array)
         img_pca = pca.transform(img_scaled)
 
-        # Adım 3: Tahmin yap
-        prediction = model.predict(img_pca)[0]
-        proba = model.predict_proba(img_pca)[0]
+        # Apply same SVD projection as training
+        U, S, Vt = np.linalg.svd(pca.transform(scaler.transform([img_array.flatten()])), full_matrices=False)
+        img_svd = np.dot(img_pca, Vt.T[:, :500])
 
-        label = "Erkek" if prediction == 0 else "Kadın"
-        st.success(f"**Tahmin:** {label}")
-        st.write(f"Güven: Erkek %{proba[0]*100:.2f}, Kadın %{proba[1]*100:.2f}")
+        # Select best features
+        img_selected = selector.transform(img_svd)
+
+        # Step 3: Predict
+        prediction = model.predict(img_selected)[0]
+        proba = model.predict_proba(img_selected)[0]
+
+        label = "Man" if prediction == 0 else "Woman"
+        st.success(f"Prediction: {label}")
+        st.write(f"Confidence → Man: {proba[0]*100:.2f}%, Woman: {proba[1]*100:.2f}%")
 
     except Exception as e:
-        st.error(f"Görüntü işlenirken hata oluştu: {e}")
+        st.error(f"Error processing image: {e}")
