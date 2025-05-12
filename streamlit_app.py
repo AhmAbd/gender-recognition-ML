@@ -21,11 +21,12 @@ if uploaded_file is not None:
     try:
         # Step 1: Read & preprocess image
         image = Image.open(uploaded_file).convert("L")
-        image_resized = image.resize((128, 128))  # must match training size
+        image_resized = image.resize((128, 128))
         img_array = np.array(image_resized).flatten().reshape(1, -1)
 
+        # ✅ Manual scaling for safety
+        img_array = img_array.astype(np.float32) / 255.0
         st.image(image_resized, caption="Processed Image", width=150)
-        st.write("Image loaded and preprocessed.")
 
         # Step 2: Apply full pipeline
         img_scaled = scaler.transform(img_array)

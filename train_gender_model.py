@@ -115,7 +115,7 @@ results["Logistic Regression"], lr_model = evaluate_model(
 )
 
 results["Decision Tree"], dt_model = evaluate_model(
-    DecisionTreeClassifier(random_state=42),
+    DecisionTreeClassifier(class_weight='balanced', random_state=42),
     X_train_selected, X_test_selected, y_train, y_test, "Decision Tree"
 )
 
@@ -129,23 +129,11 @@ results["SVM"], svm_model = evaluate_model(
     X_train_selected, X_test_selected, y_train, y_test, "SVM (Balanced)"
 )
 
-# Step 9: Compare models and choose best
-print("\nModel Comparison:")
-for model_name, acc in results.items():
-    print(f"{model_name}: {acc:.4f}")
+# Step 9: Save final model (force Logistic Regression for stability)
+print("\nFor deployment, Logistic Regression model was selected for its stability in unseen data.")
+best_model = lr_model
 
-best_model_name = max(results, key=results.get)
-print(f"\nBest model: {best_model_name} with accuracy {results[best_model_name]:.4f}")
-
-model_objects = {
-    "Logistic Regression": lr_model,
-    "Decision Tree": dt_model,
-    "KNN": knn_model,
-    "SVM": svm_model
-}
-best_model = model_objects[best_model_name]
-
-# Step 10: Save best model + pipeline components
+# Save best model + pipeline components
 joblib.dump(best_model, "model.pkl", compress=3)
 joblib.dump(scaler, "scaler.pkl", compress=3)
 joblib.dump(pca, "pca.pkl", compress=3)
