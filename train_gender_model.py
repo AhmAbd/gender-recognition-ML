@@ -83,8 +83,15 @@ selector = SelectKBest(mutual_info_classif, k=300)
 X_train_selected = selector.fit_transform(X_train_vt, y_train)
 X_test_selected = selector.transform(X_test_vt)
 
-# Step 8: Evaluate models + save results
+# Step 8: Evaluate models
 results = {}
+models = {
+    "Logistic Regression": LogisticRegression(max_iter=2000, solver='liblinear', class_weight='balanced'),
+    "Decision Tree": DecisionTreeClassifier(class_weight='balanced', random_state=42),
+    "KNN": KNeighborsClassifier(n_neighbors=5),
+    "SVM": SVC(probability=True, class_weight='balanced', random_state=42)
+}
+trained_models = {}
 
 def evaluate_model(model, X_train, X_test, y_train, y_test, name=""):
     model.fit(X_train, y_train)
@@ -108,36 +115,21 @@ def evaluate_model(model, X_train, X_test, y_train, y_test, name=""):
 
     return acc, model
 
-# Run models
-results["Logistic Regression"], lr_model = evaluate_model(
-    LogisticRegression(max_iter=2000, solver='liblinear', class_weight='balanced'),
-    X_train_selected, X_test_selected, y_train, y_test, "Logistic Regression (Balanced)"
-)
+for name, clf in models.items():
+    acc, fitted_model = evaluate_model(clf, X_train_selected, X_test_selected, y_train, y_test, name)
+    results[name] = acc
+    trained_models[name] = fitted_model
 
-results["Decision Tree"], dt_model = evaluate_model(
-    DecisionTreeClassifier(class_weight='balanced', random_state=42),
-    X_train_selected, X_test_selected, y_train, y_test, "Decision Tree"
-)
+# Step 9: Automatically choose best model
+best_model_name = max(results, key=results.get)
+best_model = trained_models[best_model_name]
+print(f"\nBest model selected: {best_model_name} with accuracy {results[best_model_name]:.4f}")
 
-results["KNN"], knn_model = evaluate_model(
-    KNeighborsClassifier(n_neighbors=5),
-    X_train_selected, X_test_selected, y_train, y_test, "KNN"
-)
-
-results["SVM"], svm_model = evaluate_model(
-    SVC(probability=True, class_weight='balanced', random_state=42),
-    X_train_selected, X_test_selected, y_train, y_test, "SVM (Balanced)"
-)
-    
-# Step 9: Save final model (force Logistic Regression for stability)
-print("\nFor deployment, Logistic Regression model was selected for its stability in unseen data.")
-best_model = lr_model
-
-# Save best model + pipeline components
+# Step 10: Save best model + pipeline
 joblib.dump(best_model, "model.pkl", compress=3)
 joblib.dump(scaler, "scaler.pkl", compress=3)
 joblib.dump(pca, "pca.pkl", compress=3)
 joblib.dump(vt, "variance_threshold.pkl", compress=3)
 joblib.dump(selector, "selector.pkl", compress=3)
 
-print("\nBest model and pipeline saved with compression!")
+print("\nModel and pipeline saved successfully!")
