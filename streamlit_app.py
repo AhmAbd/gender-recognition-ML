@@ -10,11 +10,11 @@ pca = joblib.load("pca.pkl")
 vt = joblib.load("variance_threshold.pkl")
 selector = joblib.load("selector.pkl")
 
-st.set_page_config(page_title="Gender Prediction from Face Image", layout="centered")
-st.title("Gender Prediction from Face Image")
-st.write("Upload a grayscale or colored face image (128x128), the model will predict gender.")
+st.set_page_config(page_title="Yüz Görüntüsünden Cinsiyet Tahmin", layout="centered")
+st.title("Yüz Görüntüsünden Cinsiyet Tahmin")
+st.write("Fotoğraf Yükleyin, Model cinsiyeti tahmin edecek.")
 
-uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Fotoğraf Seç...", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
     try:
