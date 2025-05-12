@@ -83,16 +83,11 @@ selector = SelectKBest(mutual_info_classif, k=300)
 X_train_selected = selector.fit_transform(X_train_vt, y_train)
 X_test_selected = selector.transform(X_test_vt)
 
-# Step 8: Evaluate models + save results
-results = {}
-
+# Step 8: Evaluate models
 def evaluate_model(model, X_train, X_test, y_train, y_test, name=""):
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
-    acc = model.score(X_test, y_test)
-
-    print(f"\nResults for {name}")
-    print(f"Accuracy: {acc:.4f}")
+    print(f"Results for {name}")
     print(classification_report(y_test, y_pred, target_names=["Man", "Woman"]))
 
     cm = confusion_matrix(y_test, y_pred)
@@ -106,38 +101,24 @@ def evaluate_model(model, X_train, X_test, y_train, y_test, name=""):
     plt.savefig(f"{name}_confusion_matrix.png")
     plt.close()
 
-    return acc, model
+print("\n--- Using PCA + VarianceThreshold + SelectKBest Features ---")
+evaluate_model(LogisticRegression(max_iter=2000, solver='liblinear', class_weight='balanced'), 
+               X_train_selected, X_test_selected, y_train, y_test, "Logistic Regression (Balanced)")
 
-# Run models
-results["Logistic Regression"], lr_model = evaluate_model(
-    LogisticRegression(max_iter=2000, solver='liblinear', class_weight='balanced'),
-    X_train_selected, X_test_selected, y_train, y_test, "Logistic Regression (Balanced)"
-)
+evaluate_model(DecisionTreeClassifier(random_state=42), 
+               X_train_selected, X_test_selected, y_train, y_test, "Decision Tree")
 
-results["Decision Tree"], dt_model = evaluate_model(
-    DecisionTreeClassifier(class_weight='balanced', random_state=42),
-    X_train_selected, X_test_selected, y_train, y_test, "Decision Tree"
-)
+evaluate_model(KNeighborsClassifier(n_neighbors=5), 
+               X_train_selected, X_test_selected, y_train, y_test, "KNN")
 
-results["KNN"], knn_model = evaluate_model(
-    KNeighborsClassifier(n_neighbors=5),
-    X_train_selected, X_test_selected, y_train, y_test, "KNN"
-)
+evaluate_model(SVC(probability=True, class_weight='balanced', random_state=42), 
+               X_train_selected, X_test_selected, y_train, y_test, "SVM (Balanced)")
 
-results["SVM"], svm_model = evaluate_model(
-    SVC(probability=True, class_weight='balanced', random_state=42),
-    X_train_selected, X_test_selected, y_train, y_test, "SVM (Balanced)"
-)
-
-# Step 9: Save final model (force Logistic Regression for stability)
-print("\nFor deployment, Logistic Regression model was selected for its stability in unseen data.")
-best_model = lr_model
-
-# Save best model + pipeline components
-joblib.dump(best_model, "model.pkl", compress=3)
+# Step 9: Save final model with compression
+joblib.dump(SVC(probability=True, class_weight='balanced', random_state=42).fit(X_train_selected, y_train), "model.pkl", compress=3)
 joblib.dump(scaler, "scaler.pkl", compress=3)
 joblib.dump(pca, "pca.pkl", compress=3)
 joblib.dump(vt, "variance_threshold.pkl", compress=3)
 joblib.dump(selector, "selector.pkl", compress=3)
 
-print("\nBest model and pipeline saved with compression!")
+print("\nFinal model, scaler, PCA, VarianceThreshold, and selector saved successfully with compression!")
