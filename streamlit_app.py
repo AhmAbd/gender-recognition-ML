@@ -7,6 +7,10 @@ from tensorflow.keras.applications import VGG16
 from tensorflow.keras.preprocessing.image import img_to_array
 import joblib
 import os
+import warnings
+
+# Suppress XGBoost warnings
+warnings.filterwarnings("ignore", category=UserWarning)
 
 # Streamlit app title
 st.title("Gender Recognition App")
@@ -29,12 +33,26 @@ except FileNotFoundError as e:
     st.error(f"Error: Could not find artifact files. Please ensure model.pkl, scaler.pkl, pca.pkl, and selector.pkl are in the same directory as this script.")
     st.stop()
 
+# Debug: Check the number of features the scaler expects
+expected_features = scaler.n_features_in_ if hasattr(scaler, 'n_features_in_') else None
+if expected_features is not None:
+    st.write(f"Scaler expects {expected_features} features.")
+    if expected_features != 2816:
+        st.error(f"Scaler feature mismatch! The scaler expects {expected_features} features, but the pipeline generates 2816 features. Please retrain the model with the updated training script and replace the artifacts.")
+        st.stop()
+else:
+    st.warning("Could not determine the number of features expected by the scaler. Proceeding, but this may cause errors.")
+
 # Load VGG16 for feature extraction
 vgg_model = VGG16(weights='imagenet', include_top=False, input_shape=(48, 48, 3))
 vgg_model = tf.keras.Model(inputs=vgg_model.input, outputs=vgg_model.get_layer('block5_pool').output)
 
 # Face detection
-face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+if not os.path.exists(cascade_path):
+    st.error("Haar cascade file not found. Please ensure cv2.data.haarcascades is available.")
+    st.stop()
+face_cascade = cv2.CascadeClassifier(cascade_path)
 if face_cascade.empty():
     st.error("Failed to load face cascade classifier.")
     st.stop()
@@ -63,13 +81,18 @@ def preprocess_image(image):
     
     # Resize to 48x48
     face_img = Image.fromarray(face_img).resize((48, 48))
-    face_array = np.array(face_img).flatten()
+    face_array = np.array(face_img).flatten()  # 2304 features
     
     # Extract VGG16 features
-    vgg_features = extract_vgg_features(np.array(face_img))
+    vgg_features = extract_vgg_features(np.array(face_img))  # 512 features
     
     # Combine raw pixels and VGG features
-    combined_features = np.concatenate([face_array, vgg_features.flatten()])
+    combined_features = np.concatenate([face_array, vgg_features.flatten()])  # 2304 + 512 = 2816 features
+    
+    # Verify feature count
+    if combined_features.shape[0] != 2816:
+        st.error(f"Feature count mismatch: Expected 2816 features, but got {combined_features.shape[0]}.")
+        return None
     
     # Scale features
     combined_features = scaler.transform([combined_features])
