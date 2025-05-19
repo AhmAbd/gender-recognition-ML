@@ -1,14 +1,7 @@
 streamlit
 numpy
 Pillow
+opencv-python-headless
+tensorflow
 scikit-learn
 joblib
-kagglehub
-matplotlib
-seaborn
-albumentations
-tensorflow
-cupy-cuda12x
-xgboost
-tqdm
-psutil

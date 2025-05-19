@@ -9,132 +9,95 @@ import joblib
 import os
 import warnings
 
-# Suppress XGBoost warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
-# Streamlit app title
-st.title("Gender Recognition App")
-st.write("Choose to either upload an image or use your webcam to predict the gender (Man or Woman).")
+st.set_page_config(page_title="Gender Prediction", layout="centered")
+st.title("Gender Recognition from Image")
+st.write("Upload a face image or take a webcam snapshot to predict gender.")
 
-# Paths to saved artifacts (artifacts are in the same directory as this script)
-ARTIFACTS_DIR = ""  # Empty string means the current directory
-MODEL_PATH = os.path.join(ARTIFACTS_DIR, "model.pkl")
-SCALER_PATH = os.path.join(ARTIFACTS_DIR, "scaler.pkl")
-PCA_PATH = os.path.join(ARTIFACTS_DIR, "pca.pkl")
-SELECTOR_PATH = os.path.join(ARTIFACTS_DIR, "selector.pkl")
+# === Load Saved Artifacts ===
+MODEL_PATH = "model.pkl"
+SCALER_PATH = "scaler.pkl"
+PCA_PATH = "pca.pkl"
+SELECTOR_PATH = "selector.pkl"
 
-# Load the saved artifacts
 try:
     model = joblib.load(MODEL_PATH)
     scaler = joblib.load(SCALER_PATH)
     pca = joblib.load(PCA_PATH)
     selector = joblib.load(SELECTOR_PATH)
-except FileNotFoundError as e:
-    st.error(f"Error: Could not find artifact files. Please ensure model.pkl, scaler.pkl, pca.pkl, and selector.pkl are in the same directory as this script.")
+except Exception as e:
+    st.error(f"Model loading failed: {e}")
     st.stop()
 
-# Debug: Check the number of features the scaler expects
-expected_features = scaler.n_features_in_ if hasattr(scaler, 'n_features_in_') else None
-if expected_features is not None:
-    st.write(f"Scaler expects {expected_features} features.")
-    if expected_features != 2816:
-        st.error(f"Scaler feature mismatch! The scaler expects {expected_features} features, but the pipeline generates 2816 features. Please retrain the model with the updated training script and replace the artifacts.")
-        st.stop()
-else:
-    st.warning("Could not determine the number of features expected by the scaler. Proceeding, but this may cause errors.")
+# === Load VGG16 model for feature extraction ===
+vgg_model = VGG16(weights="imagenet", include_top=False, input_shape=(48, 48, 3))
+vgg_model = tf.keras.Model(inputs=vgg_model.input, outputs=vgg_model.get_layer("block5_pool").output)
 
-# Load VGG16 for feature extraction
-vgg_model = VGG16(weights='imagenet', include_top=False, input_shape=(48, 48, 3))
-vgg_model = tf.keras.Model(inputs=vgg_model.input, outputs=vgg_model.get_layer('block5_pool').output)
-
-# Face detection
-cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-if not os.path.exists(cascade_path):
-    st.error("Haar cascade file not found. Please ensure cv2.data.haarcascades is available.")
-    st.stop()
-face_cascade = cv2.CascadeClassifier(cascade_path)
+# === Load face detector ===
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 if face_cascade.empty():
-    st.error("Failed to load face cascade classifier.")
+    st.error("Could not load face detector.")
     st.stop()
 
-# Function to extract VGG16 features
-def extract_vgg_features(image):
-    img_array = img_to_array(cv2.resize(cv2.cvtColor(image, cv2.COLOR_GRAY2RGB), (48, 48)))
+def extract_features(image_array):
+    rgb_img = cv2.cvtColor(image_array, cv2.COLOR_GRAY2RGB)
+    resized = cv2.resize(rgb_img, (48, 48))
+    img_array = img_to_array(resized)
     img_array = np.expand_dims(img_array, axis=0)
     features = vgg_model.predict(img_array, verbose=0)
     return features.reshape(1, -1)
 
-# Preprocess the image (from either webcam or file upload)
-def preprocess_image(image):
-    # Convert to grayscale
-    img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2GRAY)
+def preprocess_image(pil_image):
+    img = np.array(pil_image.convert("RGB"))
+    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.05, minNeighbors=8, minSize=(40, 40))
     
-    # Detect faces
-    faces = face_cascade.detectMultiScale(img, scaleFactor=1.05, minNeighbors=8, minSize=(40, 40))
     if len(faces) == 0:
-        st.warning("No face detected in the image. Please try again with a different image or capture.")
-        return None
-    
-    # Use the first detected face
+        st.warning("No face detected in the image.")
+        return None, None
+
     (x, y, w, h) = faces[0]
-    face_img = img[y:y+h, x:x+w]
-    
-    # Resize to 48x48
-    face_img = Image.fromarray(face_img).resize((48, 48))
-    face_array = np.array(face_img).flatten()  # 2304 features
-    
-    # Extract VGG16 features
-    vgg_features = extract_vgg_features(np.array(face_img))  # 512 features
-    
-    # Combine raw pixels and VGG features
-    combined_features = np.concatenate([face_array, vgg_features.flatten()])  # 2304 + 512 = 2816 features
-    
-    # Verify feature count
-    if combined_features.shape[0] != 2816:
-        st.error(f"Feature count mismatch: Expected 2816 features, but got {combined_features.shape[0]}.")
-        return None
-    
-    # Scale features
-    combined_features = scaler.transform([combined_features])
-    
-    # Apply PCA if used
+    face = gray[y:y+h, x:x+w]
+    face_pil = Image.fromarray(face).resize((48, 48))
+    face_array = np.array(face_pil).flatten()
+
+    vgg_features = extract_features(np.array(face_pil))
+    full_features = np.concatenate([face_array, vgg_features.flatten()])
+
+    if full_features.shape[0] != 2816:
+        st.error(f"Expected 2816 features, got {full_features.shape[0]}")
+        return None, None
+
+    # Scale
+    scaled = scaler.transform([full_features])
+
+    # PCA
     if pca is not None:
-        combined_features = pca.transform(combined_features)
-    
-    # Apply feature selector
-    if hasattr(selector, 'transform'):
-        combined_features = selector.transform(combined_features)
-    
-    return combined_features
+        scaled = pca.transform(scaled)
 
-# Let the user choose input method
-input_method = st.radio("Choose input method:", ("Webcam", "Upload Image"))
+    # Selector
+    if selector is not None:
+        scaled = selector.transform(scaled)
 
-# Get the image based on the chosen input method
-if input_method == "Webcam":
-    captured_image = st.camera_input("Take a picture with your webcam")
-else:
-    captured_image = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+    return scaled, face_pil
 
-# Process the image if one is provided
-if captured_image is not None:
-    # Display the captured or uploaded image
-    image = Image.open(captured_image)
-    st.image(image, caption="Captured/Uploaded Image", use_container_width=True)
-    
-    # Preprocess the image
-    features = preprocess_image(image)
-    if features is not None:
-        # Predict gender
-        prediction = model.predict(features)
-        prediction_proba = model.predict_proba(features)[0] if hasattr(model, "predict_proba") else None
-        
-        # Display prediction
-        gender = "Man" if prediction[0] == 0 else "Woman"
-        st.subheader(f"Predicted Gender: {gender}")
-        
-        if prediction_proba is not None:
-            confidence_man = prediction_proba[0] * 100
-            confidence_woman = prediction_proba[1] * 100
-            st.write(f"Confidence (Man): {confidence_man:.2f}%")
-            st.write(f"Confidence (Woman): {confidence_woman:.2f}%")
+# === Image Upload ===
+st.subheader("📁 Upload Image")
+uploaded_file = st.file_uploader("Upload a face image", type=["jpg", "jpeg", "png"])
+
+if uploaded_file:
+    try:
+        pil_image = Image.open(uploaded_file)
+        features, preview = preprocess_image(pil_image)
+        if features is not None:
+            st.image(preview, caption="Detected Face", width=200)
+
+            prediction = model.predict(features)[0]
+            probas = model.predict_proba(features)[0]
+
+            label = "Man" if prediction == 0 else "Woman"
+            st.success(f"Prediction: {label}")
+            st.write(f"Confidence → Man: {probas[0]*100:.2f}%, Woman: {probas[1]*100:.2f}%")
+    except Exception as e:
+        st.error(f"Error processing image: {e}")
