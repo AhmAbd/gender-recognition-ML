@@ -3,6 +3,9 @@ import numpy as np
 from PIL import Image, ImageOps
 import cv2
 import joblib
+import tensorflow as tf
+from tensorflow.keras.applications import VGG16
+from tensorflow.keras.preprocessing.image import img_to_array
 import os
 
 # Load saved model and preprocessing pipeline
@@ -13,79 +16,60 @@ selector = joblib.load("selector.pkl")
 
 # Constants
 IMG_SIZE = (48, 48)
-EXPECTED_FEATURES = 2816  # 2304 raw + 512 dummy VGG features
+EXPECTED_FEATURES = 2816  # 2304 raw + 512 VGG
 
-# Load face detector
+# VGG16 feature extractor
+vgg_model = VGG16(weights='imagenet', include_top=False, input_shape=(48, 48, 3))
+vgg_model = tf.keras.Model(inputs=vgg_model.input, outputs=vgg_model.get_layer("block5_pool").output)
+
+# Face detector
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
-# Set page
-st.set_page_config(page_title="Gender Detection", layout="centered")
-st.title("Cinsiyet Tahmini Uygulaması")
-st.write("Bir yüz görseli yükleyin veya kameranızı kullanarak cinsiyeti tahmin edin.")
+# UI layout
+st.set_page_config(page_title="Gender Prediction", layout="centered")
+st.title("Gender Prediction from Face Image")
+st.write("Upload a face image or take a photo with your webcam to predict gender.")
 
-# Dummy VGG feature generator
-def dummy_vgg_features():
-    return np.zeros(512)
+# --- Preprocessing function ---
+def preprocess_image(pil_image):
+    img = ImageOps.exif_transpose(pil_image.convert("RGB"))
+    open_cv_image = np.array(img)
+    gray = cv2.cvtColor(open_cv_image, cv2.COLOR_RGB2GRAY)
 
-# Image preprocessing
-def preprocess_image(image_pil):
-    img = ImageOps.exif_transpose(image_pil.convert("L"))
-    img_resized = img.resize(IMG_SIZE)
-    face_np = np.array(img_resized)
-
-    face_cv = np.array(image_pil.convert("RGB"))
-    gray = cv2.cvtColor(face_cv, cv2.COLOR_RGB2GRAY)
     faces = face_cascade.detectMultiScale(gray, scaleFactor=1.05, minNeighbors=8, minSize=(40, 40))
-
     if len(faces) == 0:
-        return None, img_resized
+        return None, img
 
     (x, y, w, h) = faces[0]
-    face = gray[y:y+h, x:x+w]
-    face = cv2.resize(face, IMG_SIZE)
+    face = gray[y:y + h, x:x + w]
+    face_resized = cv2.resize(face, IMG_SIZE)
 
-    raw_features = face.flatten()
-    vgg_features = dummy_vgg_features()
-    all_features = np.concatenate([raw_features, vgg_features])
+    # Raw features
+    raw_flattened = face_resized.flatten()
 
-    all_features = scaler.transform([all_features])
-    if pca:
-        all_features = pca.transform(all_features)
-    if selector:
-        all_features = selector.transform(all_features)
+    # VGG features
+    face_rgb = cv2.cvtColor(face_resized, cv2.COLOR_GRAY2RGB)
+    face_rgb_resized = cv2.resize(face_rgb, IMG_SIZE)
+    arr = img_to_array(face_rgb_resized)
+    arr = np.expand_dims(arr, axis=0)
+    vgg_features = vgg_model.predict(arr, verbose=0).flatten()
 
-    return all_features, img_resized
+    combined = np.concatenate([raw_flattened, vgg_features])
+    combined = scaler.transform([combined])
+    if pca is not None:
+        combined = pca.transform(combined)
+    if selector is not None:
+        combined = selector.transform(combined)
 
-# --- Input Method Selector ---
-input_method = st.radio("Giriş yöntemi seçin:", ("Görsel Yükle", "Kamera Kullan"))
+    return combined, Image.fromarray(face_resized)
 
-# --- Camera Section ---
-if input_method == "Kamera Kullan":
-    st.subheader("Kamera ile Fotoğraf Çek")
-    camera_input_image = st.camera_input("Fotoğraf çek")
-
-    if camera_input_image is not None:
-        try:
-            image = Image.open(camera_input_image)
-            features, preview = preprocess_image(image)
-
-            if features is None:
-                st.warning("Yüz algılanamadı. Lütfen tekrar deneyin.")
-            else:
-                st.image(preview, caption="Algılanan Yüz", width=150)
-                prediction = model.predict(features)[0]
-                proba = model.predict_proba(features)[0]
-
-                label = "Erkek" if prediction == 0 else "Kadın"
-                st.success(f"Tahmin: {label}")
-                st.write(f"Güven → Erkek: %{proba[0]*100:.2f}, Kadın: %{proba[1]*100:.2f}")
-        except Exception as e:
-            st.error(f"Hata oluştu: {e}")
+# --- UI control ---
+input_method = st.radio("Select Input Method", ("Upload Image", "Use Webcam"))
 
 # --- Upload Section ---
-elif input_method == "Görsel Yükle":
-    st.subheader("Fotoğraf Yükleyin")
-    uploaded_file = st.file_uploader("Bir yüz görseli yükleyin", type=["jpg", "jpeg", "png"])
+if input_method == "Upload Image":
+    st.subheader("Upload a Face Image")
+    uploaded_file = st.file_uploader("Choose an image", type=["jpg", "jpeg", "png"])
 
     if uploaded_file is not None:
         try:
@@ -93,14 +77,35 @@ elif input_method == "Görsel Yükle":
             features, preview = preprocess_image(image)
 
             if features is None:
-                st.warning("Yüz algılanamadı. Lütfen farklı bir görsel deneyin.")
+                st.warning("No face detected. Try another image.")
             else:
-                st.image(preview, caption="Yüklenen Görsel", width=150)
-                prediction = model.predict(features)[0]
+                st.image(preview, caption="Detected Face", width=150)
+                pred = model.predict(features)[0]
                 proba = model.predict_proba(features)[0]
-
-                label = "Erkek" if prediction == 0 else "Kadın"
-                st.success(f"Tahmin: {label}")
-                st.write(f"Güven → Erkek: %{proba[0]*100:.2f}, Kadın: %{proba[1]*100:.2f}")
+                label = "Man" if pred == 0 else "Woman"
+                st.success(f"Prediction: {label}")
+                st.write(f"Confidence → Man: %{proba[0]*100:.2f}, Woman: %{proba[1]*100:.2f}")
         except Exception as e:
-            st.error(f"Hata oluştu: {e}")
+            st.error(f"Error occurred: {e}")
+
+# --- Webcam Section ---
+elif input_method == "Use Webcam":
+    st.subheader("Take a Photo")
+    camera_image = st.camera_input("Take a photo")
+
+    if camera_image is not None:
+        try:
+            image = Image.open(camera_image)
+            features, preview = preprocess_image(image)
+
+            if features is None:
+                st.warning("No face detected. Try again.")
+            else:
+                st.image(preview, caption="Detected Face", width=150)
+                pred = model.predict(features)[0]
+                proba = model.predict_proba(features)[0]
+                label = "Man" if pred == 0 else "Woman"
+                st.success(f"Prediction: {label}")
+                st.write(f"Confidence → Man: %{proba[0]*100:.2f}, Woman: %{proba[1]*100:.2f}")
+        except Exception as e:
+            st.error(f"Error occurred: {e}")
