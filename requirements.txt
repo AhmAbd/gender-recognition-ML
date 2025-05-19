@@ -6,3 +6,9 @@ joblib
 kagglehub
 matplotlib
 seaborn
+albumentations
+tensorflow
+cupy-cuda12x
+xgboost
+tqdm
+psutil
